@@ -1,0 +1,86 @@
+function ret = multigrid( A, v, f, DM_IND, IND_DM, ind2dm, dm2ind, resol, depth, lambda )
+    
+    if( depth ~= 1 )
+        blanks = '';
+        for i = 1 : depth - 1
+            blanks = strcat( blanks, '------' );
+        end
+    
+        u = A \ f;
+
+        %----------------------------------------------
+        % relax a1 times on Au = f on initial guess v
+        abserr = abs_error( u, v );
+        str = sprintf( '%d before relax = %f', depth, abserr );
+        str = strcat( blanks, str );
+        disp( str );
+    
+        %[v, error, iter, flag]  = sor( A, v, f, 1, 20, 1e-10 ); %3 steps of S.O.R. is the minimum for this problem?
+        v = separate_iter_solver( A, v, f, resol, dm2ind );
+        %[v, error, iter, flag]  = sor(A, v, f, 1, 20, 0.0001);
+   
+        abserr = abs_error( u, v );
+        str = sprintf( '%d before cg = %f', depth, abserr );
+        str = strcat( blanks, str );
+        disp( str );
+    
+        %----------------------------------------------
+        % recursive do multigrid
+        
+        resol_2h = resol / 2;
+         
+        % construct the coarser matrix
+        [ A_2h, f_nouse, n_2h, ind2dm_2h, dm2ind_2h ] = construct_Af( resol_2h, lambda );
+         
+        % construct I_h_2h, I_2h_h
+        [ DM_IND_2h, IND_DM_2h ] = construct_dm_ind( dm2ind_2h, resol_2h, n_2h );
+        I_h_2h = construct_I_h_2h( resol, ind2dm );
+        I_2h_h = construct_I_2h_h( resol );
+
+        % construct A_2h, v_2h, f_2h
+        f_2h = IND_DM_2h * I_h_2h * DM_IND * ( f - A * v );
+        v_2h = zeros( n_2h, 1 );
+        
+        
+        Surf11 = func_to_surf( DM_IND*(f-A*v), resol );  
+        Surf12 = func_to_surf( I_h_2h*DM_IND*(f-A*v), resol_2h );
+                
+        % sub-level 2 times
+        for i = 1 : 2
+            v_2h = multigrid( A_2h, v_2h, f_2h, ...
+                DM_IND_2h, IND_DM_2h, ind2dm_2h, dm2ind_2h, ...
+                resol_2h, depth - 1, lambda );
+        end
+   
+        % correction
+        v = v + IND_DM * I_2h_h * DM_IND_2h * v_2h;
+   
+        % relax a1 times on Au = f on initial guess v
+        abserr = abs_error( u, v );
+        str = sprintf( '%d after cg = %f', depth, abserr );
+        str = strcat( blanks, str );
+        disp( str );
+    
+        v = separate_iter_solver( A, v, f, resol, dm2ind );
+        %[v, error, iter, flag]  = sor(A, v, f, 1, 20, 0.0001);
+                
+        abserr = abs_error( u, v );
+        str = sprintf( '%d after relax = %f', depth, abserr );
+        str = strcat( blanks, str );
+        disp( str );
+ 
+        ret = v;
+        
+    else
+        
+        % at the coarses level, solve it by direct method
+               
+        v = A \ f;
+        ret = v;
+        
+        str = sprintf( '%d after relax = %f', depth, 0 );
+        disp( str );
+        
+    end
+  
+end
